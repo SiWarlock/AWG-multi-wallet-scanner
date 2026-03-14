@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGW Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0a0b0d;
+    --bg-secondary: #111318;
+    --bg-card: #161922;
+    --bg-input: #1a1d27;
+    --border: #252a36;
+    --border-focus: #00e7a0;
+    --text-primary: #e8eaed;
+    --text-secondary: #8b8f9a;
+    --text-dim: #565b6a;
+    --accent: #00e7a0;
+    --accent-dim: rgba(0, 231, 160, 0.12);
+    --accent-glow: rgba(0, 231, 160, 0.25);
+    --red: #ff5c5c;
+    --red-dim: rgba(255, 92, 92, 0.12);
+    --yellow: #ffc857;
+    --yellow-dim: rgba(255, 200, 87, 0.12);
+    --blue: #5c9eff;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .noise-overlay {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .glow-orb {
+    position: fixed; width: 600px; height: 600px; border-radius: 50%;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    filter: blur(120px); pointer-events: none; z-index: 0; opacity: 0.4;
+    top: -200px; right: -200px;
+  }
+
+  .container {
+    position: relative; z-index: 1;
+    max-width: 960px; margin: 0 auto; padding: 48px 24px;
+  }
+
+  /* Header */
+  .header { margin-bottom: 48px; }
+  .header-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 100px;
+    background: var(--accent-dim); border: 1px solid rgba(0,231,160,0.2);
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+    color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+  .header-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .header h1 {
+    font-size: 42px; font-weight: 800; letter-spacing: -0.03em;
+    line-height: 1.1; margin-bottom: 12px;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p { color: var(--text-secondary); font-size: 16px; line-height: 1.5; max-width: 600px; }
+
+  /* Input Section */
+  .input-section {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 24px; margin-bottom: 24px;
+  }
+  .input-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+    color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .input-label .count { color: var(--accent); }
+  textarea {
+    width: 100%; min-height: 160px; padding: 16px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text-primary); resize: vertical;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.7;
+    transition: border-color 0.2s;
+  }
+  textarea:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-dim); }
+  textarea::placeholder { color: var(--text-dim); }
+
+  .controls {
+    display: flex; gap: 12px; margin-top: 16px; align-items: center; flex-wrap: wrap;
+  }
+  .scan-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 28px; border-radius: 10px; border: none;
+    background: var(--accent); color: #0a0b0d;
+    font-family: 'Outfit', sans-serif; font-size: 15px; font-weight: 700;
+    cursor: pointer; transition: all 0.2s;
+    letter-spacing: -0.01em;
+  }
+  .scan-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px var(--accent-glow); }
+  .scan-btn:active { transform: translateY(0); }
+  .scan-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+  .scan-btn .spinner {
+    width: 16px; height: 16px; border: 2px solid rgba(10,11,13,0.3);
+    border-top-color: #0a0b0d; border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toggle-wrap {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-secondary); cursor: pointer; user-select: none;
+  }
+  .toggle {
+    width: 36px; height: 20px; border-radius: 10px;
+    background: var(--border); position: relative; transition: background 0.2s;
+  }
+  .toggle.active { background: var(--accent); }
+  .toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: white; transition: transform 0.2s;
+  }
+  .toggle.active::after { transform: translateX(16px); }
+
+  /* Progress */
+  .progress-bar-wrap {
+    height: 3px; background: var(--bg-input); border-radius: 2px;
+    margin-top: 16px; overflow: hidden; display: none;
+  }
+  .progress-bar-wrap.active { display: block; }
+  .progress-bar {
+    height: 100%; background: var(--accent); border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  /* Stats */
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px;
+  }
+  .stat-card .stat-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .stat-card .stat-value { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
+  .stat-card .stat-value.accent { color: var(--accent); }
+  .stat-card .stat-value.yellow { color: var(--yellow); }
+
+  /* Results */
+  .results-header {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+    color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .results-header .export-btn {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .results-header .export-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .result-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; margin-bottom: 8px; overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .result-card:hover { border-color: rgba(255,255,255,0.1); }
+  .result-card.funded { border-left: 3px solid var(--accent); }
+  .result-card.empty { opacity: 0.6; }
+
+  .result-main {
+    display: grid; grid-template-columns: 1fr auto; gap: 16px;
+    padding: 16px 20px; align-items: center; cursor: pointer;
+  }
+  @media (max-width: 640px) {
+    .result-main { grid-template-columns: 1fr; }
+  }
+
+  .result-addresses { min-width: 0; }
+  .result-eoa {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    color: var(--text-secondary); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; margin-bottom: 4px;
+  }
+  .result-eoa .label { color: var(--text-dim); font-size: 10px; margin-right: 6px; text-transform: uppercase; }
+  .result-agw {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    color: var(--text-primary); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .result-agw .label { color: var(--accent); font-size: 10px; margin-right: 6px; text-transform: uppercase; font-weight: 600; }
+  .result-agw a { color: inherit; text-decoration: none; }
+  .result-agw a:hover { text-decoration: underline; }
+
+  .result-badges { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+  .badge {
+    padding: 4px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .badge.deployed { background: var(--accent-dim); color: var(--accent); }
+  .badge.not-deployed { background: rgba(255,255,255,0.04); color: var(--text-dim); }
+  .badge.eth { background: var(--yellow-dim); color: var(--yellow); }
+  .badge.error { background: var(--red-dim); color: var(--red); }
+
+  .result-tokens {
+    padding: 0 20px 16px; display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .token-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  }
+  .token-badge .token-symbol { color: var(--blue); font-weight: 600; }
+  .token-badge .token-amount { color: var(--text-secondary); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 64px 24px; color: var(--text-dim);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+  .empty-state p { font-size: 14px; }
+
+  /* Fade in animation */
+  .fade-in {
+    animation: fadeIn 0.3s ease forwards;
+    opacity: 0;
+  }
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  .status-text {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-dim); margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="noise-overlay"></div>
+<div class="glow-orb"></div>
+
+<div class="container" id="app">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-badge"><div class="dot"></div> Abstract Chain · 2741</div>
+    <h1>AGW <span>Scanner</span></h1>
+    <p>Paste your EVM wallet addresses to discover associated Abstract Global Wallets and check for ETH & token balances.</p>
+  </div>
+
+  <!-- Input -->
+  <div class="input-section">
+    <div class="input-label">
+      <span>Wallet Addresses</span>
+      <span class="count" id="addrCount">0 addresses</span>
+    </div>
+    <textarea id="addressInput" placeholder="Paste EOA addresses, one per line&#10;&#10;0x742d35Cc6634C0532925a3b844Bc9e7595f2bD28&#10;0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045&#10;0xAb5801a7D398351b8bE11C439e05C5b3259aEc9B"></textarea>
+    <div class="controls">
+      <button class="scan-btn" id="scanBtn" onclick="startScan()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M7 1v4H3M9 15v-4h4M1 9h4v4M15 7h-4V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Scan Wallets
+      </button>
+      <label class="toggle-wrap" onclick="toggleFundedOnly()">
+        <div class="toggle" id="fundedToggle"></div>
+        Funded only
+      </label>
+      <label class="toggle-wrap" onclick="toggleDeployedOnly()">
+        <div class="toggle" id="deployedToggle"></div>
+        Deployed only
+      </label>
+    </div>
+    <div class="progress-bar-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+    </div>
+    <div class="status-text" id="statusText"></div>
+  </div>
+
+  <!-- Stats (hidden until results) -->
+  <div class="stats" id="statsSection" style="display: none">
+    <div class="stat-card">
+      <div class="stat-label">Scanned</div>
+      <div class="stat-value" id="statScanned">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">AGWs Found</div>
+      <div class="stat-value accent" id="statDeployed">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">With Balance</div>
+      <div class="stat-value yellow" id="statFunded">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Errors</div>
+      <div class="stat-value" id="statErrors" style="color: var(--red)">0</div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="resultsSection" style="display: none">
+    <div class="results-header">
+      <span>Results</span>
+      <button class="export-btn" onclick="exportJSON()">Export JSON</button>
+    </div>
+    <div id="resultsList"></div>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty-state" id="emptyState">
+    <div class="icon">⬡</div>
+    <p>Paste your wallet addresses above and hit scan to discover AGWs</p>
+  </div>
+</div>
+
+<script>
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const ABSTRACT_RPC = 'https://api.mainnet.abs.xyz';
+const AGW_FACTORY = '0xe86Bf72715dF28a0b7c3C8F596E7fE05a22A139c';
+const KNOWN_TOKENS = [
+  { address: '0x84A71ccD554Cc1b02749b35d22F684CC8ec987e1', symbol: 'USDC', decimals: 6 },
+  { address: '0x0709F39376dEEe2A2dfC94A58EdEb2Eb9DF012bD', symbol: 'USDT', decimals: 6 },
+  { address: '0x3439153EB7AF838Ad19d56E1571FBD09333C2809', symbol: 'WETH', decimals: 18 },
+];
+
+// Function selectors (pre-computed keccak256 of signatures)
+const SEL_GET_ADDRESS = '0x7603cc86'; // getAddressForSalt(bytes32)
+const SEL_BALANCE_OF  = '0x70a08231'; // balanceOf(address)
+
+let results = [];
+let scanning = false;
+let fundedOnly = false;
+let deployedOnly = false;
+
+// ─── Ethers helpers ──────────────────────────────────────────────────────────
+
+const provider = new ethers.JsonRpcProvider(ABSTRACT_RPC);
+
+function deriveAGWSalt(eoaAddress) {
+  const addr = ethers.getAddress(eoaAddress);
+  const addrBytes = ethers.getBytes(addr);
+  return ethers.keccak256(addrBytes);
+}
+
+async function getAGWAddress(salt) {
+  const calldata = SEL_GET_ADDRESS + salt.slice(2); // selector + bytes32
+  const result = await provider.call({ to: AGW_FACTORY, data: calldata });
+  // decode address from 32-byte return
+  return ethers.getAddress('0x' + result.slice(26));
+}
+
+async function isDeployed(address) {
+  const code = await provider.getCode(address);
+  return code && code !== '0x' && code.length > 2;
+}
+
+async function getETHBalance(address) {
+  const bal = await provider.getBalance(address);
+  return { raw: bal, formatted: ethers.formatEther(bal) };
+}
+
+async function getTokenBalance(tokenAddress, walletAddress, decimals) {
+  const paddedAddr = walletAddress.slice(2).padStart(64, '0');
+  const calldata = SEL_BALANCE_OF + paddedAddr;
+  try {
+    const result = await provider.call({ to: tokenAddress, data: calldata });
+    const bal = BigInt(result);
+    if (bal > 0n) {
+      return { raw: bal, formatted: ethers.formatUnits(bal, decimals) };
+    }
+  } catch {}
+  return null;
+}
+
+// ─── Scan logic ──────────────────────────────────────────────────────────────
+
+async function scanAddress(eoa) {
+  const entry = {
+    eoa: ethers.getAddress(eoa),
+    agw: null,
+    deployed: false,
+    ethBalance: '0',
+    ethRaw: 0n,
+    tokens: [],
+    error: null,
+  };
+
+  try {
+    const salt = deriveAGWSalt(eoa);
+    entry.agw = await getAGWAddress(salt);
+    entry.deployed = await isDeployed(entry.agw);
+
+    if (entry.deployed) {
+      const ethBal = await getETHBalance(entry.agw);
+      entry.ethBalance = ethBal.formatted;
+      entry.ethRaw = ethBal.raw;
+
+      // Check known tokens
+      for (const token of KNOWN_TOKENS) {
+        const bal = await getTokenBalance(token.address, entry.agw, token.decimals);
+        if (bal) {
+          entry.tokens.push({
+            symbol: token.symbol,
+            address: token.address,
+            balance: bal.formatted,
+            raw: bal.raw,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    entry.error = e.message || 'Unknown error';
+  }
+
+  return entry;
+}
+
+// ─── UI Logic ────────────────────────────────────────────────────────────────
+
+const $ = id => document.getElementById(id);
+
+// Count addresses on input
+$('addressInput').addEventListener('input', () => {
+  const addrs = parseAddresses();
+  $('addrCount').textContent = `${addrs.length} address${addrs.length !== 1 ? 'es' : ''}`;
+});
+
+function parseAddresses() {
+  const raw = $('addressInput').value;
+  return raw.split(/[\n,]+/)
+    .map(l => l.trim())
+    .filter(l => /^0x[a-fA-F0-9]{40}$/.test(l));
+}
+
+function toggleFundedOnly() {
+  fundedOnly = !fundedOnly;
+  $('fundedToggle').classList.toggle('active', fundedOnly);
+  renderResults();
+}
+
+function toggleDeployedOnly() {
+  deployedOnly = !deployedOnly;
+  $('deployedToggle').classList.toggle('active', deployedOnly);
+  renderResults();
+}
+
+async function startScan() {
+  if (scanning) return;
+  const addresses = parseAddresses();
+  if (addresses.length === 0) {
+    $('statusText').textContent = 'No valid addresses found. Paste 0x... addresses, one per line.';
+    return;
+  }
+
+  scanning = true;
+  results = [];
+  $('scanBtn').disabled = true;
+  $('scanBtn').innerHTML = '<div class="spinner"></div> Scanning...';
+  $('progressWrap').classList.add('active');
+  $('progressBar').style.width = '0%';
+  $('emptyState').style.display = 'none';
+  $('statsSection').style.display = 'grid';
+  $('resultsSection').style.display = 'block';
+  $('resultsList').innerHTML = '';
+
+  let done = 0;
+  const total = addresses.length;
+  const CONCURRENCY = 4;
+
+  // Worker pool
+  let idx = 0;
+  const workers = [];
+  for (let w = 0; w < Math.min(CONCURRENCY, total); w++) {
+    workers.push((async () => {
+      while (idx < total) {
+        const i = idx++;
+        $('statusText').textContent = `Scanning ${i + 1} of ${total}...`;
+        const result = await scanAddress(addresses[i]);
+        results.push(result);
+        done++;
+        $('progressBar').style.width = `${(done / total) * 100}%`;
+        updateStats();
+        renderResults();
+      }
+    })());
+  }
+
+  await Promise.all(workers);
+
+  scanning = false;
+  $('scanBtn').disabled = false;
+  $('scanBtn').innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M7 1v4H3M9 15v-4h4M1 9h4v4M15 7h-4V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Scan Wallets`;
+  $('statusText').textContent = `Done — scanned ${total} wallet${total !== 1 ? 's' : ''} in ${(performance.now() / 1000).toFixed(1)}s`;
+  $('progressBar').style.width = '100%';
+}
+
+function updateStats() {
+  $('statScanned').textContent = results.length;
+  $('statDeployed').textContent = results.filter(r => r.deployed).length;
+  $('statFunded').textContent = results.filter(r => r.ethRaw > 0n || r.tokens.length > 0).length;
+  $('statErrors').textContent = results.filter(r => r.error).length;
+}
+
+function renderResults() {
+  let filtered = [...results];
+  if (fundedOnly) filtered = filtered.filter(r => r.ethRaw > 0n || r.tokens.length > 0);
+  if (deployedOnly) filtered = filtered.filter(r => r.deployed);
+
+  // Sort: funded first, then deployed, then rest
+  filtered.sort((a, b) => {
+    const aFunded = a.ethRaw > 0n || a.tokens.length > 0 ? 2 : a.deployed ? 1 : 0;
+    const bFunded = b.ethRaw > 0n || b.tokens.length > 0 ? 2 : b.deployed ? 1 : 0;
+    return bFunded - aFunded;
+  });
+
+  const list = $('resultsList');
+  list.innerHTML = filtered.map((r, i) => {
+    const isFunded = r.ethRaw > 0n || r.tokens.length > 0;
+    const cardClass = isFunded ? 'funded' : (!r.deployed && !r.error) ? 'empty' : '';
+    const shortEoa = r.eoa.slice(0, 8) + '...' + r.eoa.slice(-6);
+    const shortAgw = r.agw ? (r.agw.slice(0, 8) + '...' + r.agw.slice(-6)) : '—';
+    const agwLink = r.agw ? `https://abscan.org/address/${r.agw}` : '#';
+    const ethDisplay = r.deployed && r.ethRaw > 0n
+      ? `<span class="badge eth">${parseFloat(r.ethBalance).toFixed(6)} ETH</span>`
+      : '';
+    const deployBadge = r.error
+      ? `<span class="badge error">Error</span>`
+      : r.deployed
+        ? `<span class="badge deployed">Deployed</span>`
+        : `<span class="badge not-deployed">Not Deployed</span>`;
+
+    const tokenHtml = r.tokens.length > 0
+      ? `<div class="result-tokens">${r.tokens.map(t =>
+          `<div class="token-badge"><span class="token-symbol">${t.symbol}</span><span class="token-amount">${formatTokenBalance(t.balance, t.symbol)}</span></div>`
+        ).join('')}</div>`
+      : '';
+
+    return `
+      <div class="result-card ${cardClass} fade-in" style="animation-delay: ${i * 30}ms">
+        <div class="result-main">
+          <div class="result-addresses">
+            <div class="result-eoa"><span class="label">EOA</span>${shortEoa}</div>
+            <div class="result-agw"><span class="label">AGW</span><a href="${agwLink}" target="_blank" rel="noopener" title="${r.agw || ''}">${shortAgw}</a></div>
+          </div>
+          <div class="result-badges">${ethDisplay}${deployBadge}</div>
+        </div>
+        ${tokenHtml}
+      </div>
+    `;
+  }).join('');
+
+  if (filtered.length === 0 && results.length > 0) {
+    list.innerHTML = '<div class="empty-state"><p>No results match your filters</p></div>';
+  }
+}
+
+function formatTokenBalance(balance, symbol) {
+  const num = parseFloat(balance);
+  if (num === 0) return '0';
+  if (num < 0.001) return '<0.001';
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + 'M';
+  if (num >= 1_000) return (num / 1_000).toFixed(2) + 'K';
+  return num.toFixed(symbol === 'WETH' ? 6 : 2);
+}
+
+function exportJSON() {
+  const exportData = results.map(r => ({
+    eoa: r.eoa,
+    agw: r.agw,
+    deployed: r.deployed,
+    ethBalance: r.ethBalance,
+    tokens: r.tokens.map(t => ({ symbol: t.symbol, balance: t.balance, contract: t.address })),
+    error: r.error,
+  }));
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'agw-scan-results.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
